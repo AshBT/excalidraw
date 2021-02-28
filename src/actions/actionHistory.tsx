@@ -6,9 +6,10 @@ import { t } from "../i18n";
 import { SceneHistory, HistoryEntry } from "../history";
 import { ExcalidrawElement } from "../element/types";
 import { AppState } from "../types";
-import { KEYS } from "../keys";
+import { isWindows, KEYS } from "../keys";
 import { getElementMap } from "../element";
 import { newElementWith } from "../element/mutateElement";
+import { fixBindingsAfterDeletion } from "../element/binding";
 
 const writeData = (
   prevElements: readonly ExcalidrawElement[],
@@ -31,6 +32,9 @@ const writeData = (
     const nextElements = data.elements;
     const nextElementMap = getElementMap(nextElements);
 
+    const deletedElements = prevElements.filter(
+      (prevElement) => !nextElementMap.hasOwnProperty(prevElement.id),
+    );
     const elements = nextElements
       .map((nextElement) =>
         newElementWith(
@@ -39,14 +43,11 @@ const writeData = (
         ),
       )
       .concat(
-        prevElements
-          .filter(
-            (prevElement) => !nextElementMap.hasOwnProperty(prevElement.id),
-          )
-          .map((prevElement) =>
-            newElementWith(prevElement, { isDeleted: true }),
-          ),
+        deletedElements.map((prevElement) =>
+          newElementWith(prevElement, { isDeleted: true }),
+        ),
       );
+    fixBindingsAfterDeletion(elements, deletedElements);
 
     return {
       elements,
@@ -58,16 +59,16 @@ const writeData = (
   return { commitToHistory };
 };
 
-const testUndo = (shift: boolean) => (event: KeyboardEvent) =>
-  event[KEYS.CTRL_OR_CMD] && /z/i.test(event.key) && event.shiftKey === shift;
-
 type ActionCreator = (history: SceneHistory) => Action;
 
 export const createUndoAction: ActionCreator = (history) => ({
   name: "undo",
   perform: (elements, appState) =>
     writeData(elements, appState, () => history.undoOnce()),
-  keyTest: testUndo(false),
+  keyTest: (event) =>
+    event[KEYS.CTRL_OR_CMD] &&
+    event.key.toLowerCase() === KEYS.Z &&
+    !event.shiftKey,
   PanelComponent: ({ updateData }) => (
     <ToolButton
       type="button"
@@ -83,7 +84,11 @@ export const createRedoAction: ActionCreator = (history) => ({
   name: "redo",
   perform: (elements, appState) =>
     writeData(elements, appState, () => history.redoOnce()),
-  keyTest: testUndo(true),
+  keyTest: (event) =>
+    (event[KEYS.CTRL_OR_CMD] &&
+      event.shiftKey &&
+      event.key.toLowerCase() === KEYS.Z) ||
+    (isWindows && event.ctrlKey && !event.shiftKey && event.key === KEYS.Y),
   PanelComponent: ({ updateData }) => (
     <ToolButton
       type="button"

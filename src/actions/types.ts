@@ -2,23 +2,32 @@ import React from "react";
 import { ExcalidrawElement } from "../element/types";
 import { AppState } from "../types";
 
-export type ActionResult = {
-  elements?: readonly ExcalidrawElement[] | null;
-  appState?: AppState | null;
-  commitToHistory: boolean;
-  syncHistory?: boolean;
-};
+/** if false, the action should be prevented */
+export type ActionResult =
+  | {
+      elements?: readonly ExcalidrawElement[] | null;
+      appState?: MarkOptional<AppState, "offsetTop" | "offsetLeft"> | null;
+      commitToHistory: boolean;
+      syncHistory?: boolean;
+    }
+  | false;
 
 type ActionFn = (
   elements: readonly ExcalidrawElement[],
-  appState: AppState,
+  appState: Readonly<AppState>,
   formData: any,
-) => ActionResult;
+  app: { canvas: HTMLCanvasElement | null },
+) => ActionResult | Promise<ActionResult>;
 
-export type UpdaterFn = (res: ActionResult, commitToHistory?: boolean) => void;
+export type UpdaterFn = (res: ActionResult) => void;
 export type ActionFilterFn = (action: Action) => void;
 
 export type ActionName =
+  | "copy"
+  | "cut"
+  | "paste"
+  | "copyAsPng"
+  | "copyAsSvg"
   | "sendBackward"
   | "bringForward"
   | "sendToBack"
@@ -26,12 +35,16 @@ export type ActionName =
   | "copyStyles"
   | "selectAll"
   | "pasteStyles"
+  | "gridMode"
+  | "zenMode"
+  | "stats"
   | "changeStrokeColor"
   | "changeBackgroundColor"
   | "changeFillStyle"
   | "changeStrokeWidth"
   | "changeSloppiness"
   | "changeStrokeStyle"
+  | "changeArrowhead"
   | "changeOpacity"
   | "changeFontSize"
   | "toggleCanvasMenu"
@@ -41,8 +54,10 @@ export type ActionName =
   | "finalize"
   | "changeProjectName"
   | "changeExportBackground"
+  | "changeExportEmbedScene"
   | "changeShouldAddWatermark"
   | "saveScene"
+  | "saveAsScene"
   | "loadScene"
   | "duplicateSelection"
   | "deleteSelectedElements"
@@ -52,12 +67,26 @@ export type ActionName =
   | "zoomOut"
   | "resetZoom"
   | "zoomToFit"
+  | "zoomToSelection"
   | "changeFontFamily"
   | "changeTextAlign"
   | "toggleFullScreen"
   | "toggleShortcuts"
   | "group"
-  | "ungroup";
+  | "ungroup"
+  | "goToCollaborator"
+  | "addToLibrary"
+  | "changeSharpness"
+  | "alignTop"
+  | "alignBottom"
+  | "alignLeft"
+  | "alignRight"
+  | "alignVerticallyCentered"
+  | "alignHorizontallyCentered"
+  | "distributeHorizontally"
+  | "distributeVertically"
+  | "viewMode"
+  | "exportWithDarkMode";
 
 export interface Action {
   name: ActionName;
@@ -65,6 +94,7 @@ export interface Action {
     elements: readonly ExcalidrawElement[];
     appState: AppState;
     updateData: (formData?: any) => void;
+    id?: string;
   }>;
   perform: ActionFn;
   keyPriority?: number;
@@ -74,17 +104,16 @@ export interface Action {
     elements: readonly ExcalidrawElement[],
   ) => boolean;
   contextItemLabel?: string;
-  contextMenuOrder?: number;
+  contextItemPredicate?: (
+    elements: readonly ExcalidrawElement[],
+    appState: AppState,
+  ) => boolean;
+  checked?: (appState: Readonly<AppState>) => boolean;
 }
 
 export interface ActionsManagerInterface {
-  actions: {
-    [actionName in ActionName]: Action;
-  };
+  actions: Record<ActionName, Action>;
   registerAction: (action: Action) => void;
   handleKeyDown: (event: KeyboardEvent) => boolean;
-  getContextMenuItems: (
-    actionFilter: ActionFilterFn,
-  ) => { label: string; action: () => void }[];
   renderAction: (name: ActionName) => React.ReactElement | null;
 }

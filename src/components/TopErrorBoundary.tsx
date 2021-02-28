@@ -56,7 +56,11 @@ export class TopErrorBoundary extends React.Component<
   private async createGithubIssue() {
     let body = "";
     try {
-      const templateStrFn = (await import("../bug-issue-template")).default;
+      const templateStrFn = (
+        await import(
+          /* webpackChunkName: "bug-issue-template" */ "../bug-issue-template"
+        )
+      ).default;
       body = encodeURIComponent(templateStrFn(this.state.sentryEventId));
     } catch (error) {
       console.error(error);
@@ -69,7 +73,7 @@ export class TopErrorBoundary extends React.Component<
 
   private errorSplash() {
     return (
-      <div className="ErrorSplash">
+      <div className="ErrorSplash excalidraw">
         <div className="ErrorSplash-messageContainer">
           <div className="ErrorSplash-paragraph bigger align-center">
             {t("errorSplash.headingMain_pre")}

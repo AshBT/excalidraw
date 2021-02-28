@@ -1,116 +1,120 @@
 import { KEYS } from "../keys";
-import { selectNode, isWritableElement, getFontString } from "../utils";
-import { globalSceneState } from "../scene";
+import { isWritableElement, getFontString } from "../utils";
+import Scene from "../scene/Scene";
 import { isTextElement } from "./typeChecks";
 import { CLASSES } from "../constants";
-import { FontFamily } from "./types";
+import { ExcalidrawElement } from "./types";
+import { AppState } from "../types";
 
-const trimText = (text: string) => {
-  // whitespace only → trim all because we'd end up inserting invisible element
-  if (!text.trim()) {
-    return "";
-  }
-  // replace leading/trailing newlines (only) otherwise it messes up bounding
-  //  box calculation (there's also a bug in FF which inserts trailing newline
-  //  for multiline texts)
-  return text.replace(/^\n+|\n+$/g, "");
+const normalizeText = (text: string) => {
+  return (
+    text
+      // replace tabs with spaces so they render and measure correctly
+      .replace(/\t/g, "        ")
+      // normalize newlines
+      .replace(/\r?\n|\r/g, "\n")
+  );
 };
 
-type TextWysiwygParams = {
-  id: string;
-  initText: string;
-  x: number;
-  y: number;
-  strokeColor: string;
-  fontSize: number;
-  fontFamily: FontFamily;
-  opacity: number;
-  zoom: number;
-  angle: number;
-  textAlign: string;
-  onChange?: (text: string) => void;
-  onSubmit: (text: string) => void;
-  onCancel: () => void;
+const getTransform = (
+  width: number,
+  height: number,
+  angle: number,
+  appState: AppState,
+) => {
+  const { zoom, offsetTop, offsetLeft } = appState;
+  const degree = (180 * angle) / Math.PI;
+  // offsets must be multiplied by 2 to account for the division by 2 of
+  // the whole expression afterwards
+  return `translate(${((width - offsetLeft * 2) * (zoom.value - 1)) / 2}px, ${
+    ((height - offsetTop * 2) * (zoom.value - 1)) / 2
+  }px) scale(${zoom.value}) rotate(${degree}deg)`;
 };
 
 export const textWysiwyg = ({
   id,
-  initText,
-  x,
-  y,
-  strokeColor,
-  fontSize,
-  fontFamily,
-  opacity,
-  zoom,
-  angle,
+  appState,
   onChange,
-  textAlign,
   onSubmit,
-  onCancel,
-}: TextWysiwygParams) => {
-  const editable = document.createElement("div");
-  try {
-    editable.contentEditable = "plaintext-only";
-  } catch {
-    editable.contentEditable = "true";
-  }
-  editable.dir = "auto";
-  editable.tabIndex = 0;
-  editable.innerText = initText;
-  editable.dataset.type = "wysiwyg";
+  getViewportCoords,
+  element,
+  canvas,
+}: {
+  id: ExcalidrawElement["id"];
+  appState: AppState;
+  onChange?: (text: string) => void;
+  onSubmit: (text: string) => void;
+  getViewportCoords: (x: number, y: number) => [number, number];
+  element: ExcalidrawElement;
+  canvas: HTMLCanvasElement | null;
+}) => {
+  const updateWysiwygStyle = () => {
+    const updatedElement = Scene.getScene(element)?.getElement(id);
+    if (updatedElement && isTextElement(updatedElement)) {
+      const [viewportX, viewportY] = getViewportCoords(
+        updatedElement.x,
+        updatedElement.y,
+      );
+      const { textAlign, angle } = updatedElement;
 
-  const degree = (180 * angle) / Math.PI;
+      editable.value = updatedElement.text;
 
-  Object.assign(editable.style, {
-    color: strokeColor,
-    position: "fixed",
-    opacity: opacity / 100,
-    top: `${y}px`,
-    left: `${x}px`,
-    transform: `translate(-50%, -50%) scale(${zoom}) rotate(${degree}deg)`,
-    textAlign: textAlign,
-    display: "inline-block",
-    font: getFontString({ fontSize, fontFamily }),
-    padding: "4px",
-    // This needs to have "1px solid" otherwise the carret doesn't show up
-    // the first time on Safari and Chrome!
-    outline: "1px solid transparent",
-    whiteSpace: "nowrap",
-    minHeight: "1em",
-    backfaceVisibility: "hidden",
-  });
+      const lines = updatedElement.text.replace(/\r\n?/g, "\n").split("\n");
+      const lineHeight = updatedElement.height / lines.length;
 
-  editable.onpaste = (event) => {
-    try {
-      const selection = window.getSelection();
-      if (!selection?.rangeCount) {
-        return;
-      }
-      selection.deleteFromDocument();
-
-      const text = event.clipboardData!.getData("text").replace(/\r\n?/g, "\n");
-
-      const span = document.createElement("span");
-      span.innerText = text;
-      const range = selection.getRangeAt(0);
-      range.insertNode(span);
-
-      // deselect
-      window.getSelection()!.removeAllRanges();
-      range.setStart(span, span.childNodes.length);
-      range.setEnd(span, span.childNodes.length);
-      selection.addRange(range);
-
-      event.preventDefault();
-    } catch (error) {
-      console.error(error);
+      Object.assign(editable.style, {
+        font: getFontString(updatedElement),
+        // must be defined *after* font ¯\_(ツ)_/¯
+        lineHeight: `${lineHeight}px`,
+        width: `${updatedElement.width}px`,
+        height: `${updatedElement.height}px`,
+        left: `${viewportX}px`,
+        top: `${viewportY}px`,
+        transform: getTransform(
+          updatedElement.width,
+          updatedElement.height,
+          angle,
+          appState,
+        ),
+        textAlign,
+        color: updatedElement.strokeColor,
+        opacity: updatedElement.opacity / 100,
+        filter: "var(--appearance-filter)",
+      });
     }
   };
 
+  const editable = document.createElement("textarea");
+
+  editable.dir = "auto";
+  editable.tabIndex = 0;
+  editable.dataset.type = "wysiwyg";
+  // prevent line wrapping on Safari
+  editable.wrap = "off";
+
+  Object.assign(editable.style, {
+    position: "fixed",
+    display: "inline-block",
+    minHeight: "1em",
+    backfaceVisibility: "hidden",
+    margin: 0,
+    padding: 0,
+    border: 0,
+    outline: 0,
+    resize: "none",
+    background: "transparent",
+    overflow: "hidden",
+    // prevent line wrapping (`whitespace: nowrap` doesn't work on FF)
+    whiteSpace: "pre",
+    // must be specified because in dark mode canvas creates a stacking context
+    zIndex: "var(--zIndex-wysiwyg)",
+  });
+
+  updateWysiwygStyle();
+
   if (onChange) {
     editable.oninput = () => {
-      onChange(trimText(editable.innerText));
+      onChange(normalizeText(editable.value));
     };
   }
 
@@ -130,15 +134,12 @@ export const textWysiwyg = ({
   };
 
   const stopEvent = (event: Event) => {
+    event.preventDefault();
     event.stopPropagation();
   };
 
   const handleSubmit = () => {
-    if (editable.innerText) {
-      onSubmit(trimText(editable.innerText));
-    } else {
-      onCancel();
-    }
+    onSubmit(normalizeText(editable.value));
     cleanup();
   };
 
@@ -149,10 +150,14 @@ export const textWysiwyg = ({
     isDestroyed = true;
     // remove events to ensure they don't late-fire
     editable.onblur = null;
-    editable.onpaste = null;
     editable.oninput = null;
     editable.onkeydown = null;
 
+    if (observer) {
+      observer.disconnect();
+    }
+
+    window.removeEventListener("resize", updateWysiwygStyle);
     window.removeEventListener("wheel", stopEvent, true);
     window.removeEventListener("pointerdown", onPointerDown);
     window.removeEventListener("pointerup", rebindBlur);
@@ -160,13 +165,13 @@ export const textWysiwyg = ({
 
     unbindUpdate();
 
-    document.body.removeChild(editable);
+    editable.remove();
   };
 
   const rebindBlur = () => {
     window.removeEventListener("pointerup", rebindBlur);
     // deferred to guard against focus traps on various UIs that steal focus
-    //  upon pointerUp
+    // upon pointerUp
     setTimeout(() => {
       editable.onblur = handleSubmit;
       // case: clicking on the same property → no change → no update → no focus
@@ -184,33 +189,41 @@ export const textWysiwyg = ({
       editable.onblur = null;
       window.addEventListener("pointerup", rebindBlur);
       // handle edge-case where pointerup doesn't fire e.g. due to user
-      //  alt-tabbing away
+      // alt-tabbing away
       window.addEventListener("blur", handleSubmit);
     }
   };
 
   // handle updates of textElement properties of editing element
-  const unbindUpdate = globalSceneState.addCallback(() => {
-    const editingElement = globalSceneState
-      .getElementsIncludingDeleted()
-      .find((element) => element.id === id);
-    if (editingElement && isTextElement(editingElement)) {
-      Object.assign(editable.style, {
-        font: getFontString(editingElement),
-        textAlign: editingElement.textAlign,
-        color: editingElement.strokeColor,
-        opacity: editingElement.opacity / 100,
-      });
-    }
+  const unbindUpdate = Scene.getScene(element)!.addCallback(() => {
+    updateWysiwygStyle();
     editable.focus();
   });
 
   let isDestroyed = false;
 
   editable.onblur = handleSubmit;
+
+  // reposition wysiwyg in case of canvas is resized. Using ResizeObserver
+  // is preferred so we catch changes from host, where window may not resize.
+  let observer: ResizeObserver | null = null;
+  if (canvas && "ResizeObserver" in window) {
+    observer = new window.ResizeObserver(() => {
+      updateWysiwygStyle();
+    });
+    observer.observe(canvas);
+  } else {
+    window.addEventListener("resize", updateWysiwygStyle);
+  }
+
   window.addEventListener("pointerdown", onPointerDown);
-  window.addEventListener("wheel", stopEvent, true);
-  document.body.appendChild(editable);
+  window.addEventListener("wheel", stopEvent, {
+    passive: false,
+    capture: true,
+  });
+  document
+    .querySelector(".excalidraw-textEditorContainer")!
+    .appendChild(editable);
   editable.focus();
-  selectNode(editable);
+  editable.select();
 };

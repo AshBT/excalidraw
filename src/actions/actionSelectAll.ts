@@ -6,6 +6,9 @@ import { getNonDeletedElements } from "../element";
 export const actionSelectAll = register({
   name: "selectAll",
   perform: (elements, appState) => {
+    if (appState.editingLinearElement) {
+      return false;
+    }
     return {
       appState: selectGroupsForSelectedElements(
         {
@@ -24,5 +27,5 @@ export const actionSelectAll = register({
     };
   },
   contextItemLabel: "labels.selectAll",
-  keyTest: (event) => event[KEYS.CTRL_OR_CMD] && event.key === "a",
+  keyTest: (event) => event[KEYS.CTRL_OR_CMD] && event.key === KEYS.A,
 });

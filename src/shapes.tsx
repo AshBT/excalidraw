@@ -1,5 +1,5 @@
 import React from "react";
-import oc from "open-color";
+import { KEYS } from "./keys";
 
 // We inline font-awesome icons in order to save on js size rather than including the font awesome react library
 export const SHAPES = [
@@ -11,7 +11,7 @@ export const SHAPES = [
       </svg>
     ),
     value: "selection",
-    key: "s",
+    key: [KEYS.V, KEYS.S],
   },
   {
     icon: (
@@ -21,7 +21,7 @@ export const SHAPES = [
       </svg>
     ),
     value: "rectangle",
-    key: "r",
+    key: KEYS.R,
   },
   {
     icon: (
@@ -31,7 +31,7 @@ export const SHAPES = [
       </svg>
     ),
     value: "diamond",
-    key: "d",
+    key: KEYS.D,
   },
   {
     icon: (
@@ -41,7 +41,7 @@ export const SHAPES = [
       </svg>
     ),
     value: "ellipse",
-    key: "e",
+    key: KEYS.E,
   },
   {
     icon: (
@@ -51,7 +51,7 @@ export const SHAPES = [
       </svg>
     ),
     value: "arrow",
-    key: "a",
+    key: KEYS.A,
   },
   {
     icon: (
@@ -62,13 +62,13 @@ export const SHAPES = [
           y1="3"
           x2="6"
           y2="3"
-          stroke={oc.black}
+          stroke="currentColor"
           strokeLinecap="round"
         />
       </svg>
     ),
     value: "line",
-    key: "l",
+    key: [KEYS.P, KEYS.L],
   },
   {
     icon: (
@@ -81,7 +81,7 @@ export const SHAPES = [
       </svg>
     ),
     value: "draw",
-    key: "x",
+    key: KEYS.X,
   },
   {
     icon: (
@@ -91,16 +91,18 @@ export const SHAPES = [
       </svg>
     ),
     value: "text",
-    key: "t",
+    key: KEYS.T,
   },
 ] as const;
 
-export const shapesShortcutKeys = SHAPES.map((shape, index) => [
-  shape.key,
-  (index + 1).toString(),
-]).flat(1);
-
-export const findShapeByKey = (key: string) =>
-  SHAPES.find((shape, index) => {
-    return shape.key === key.toLowerCase() || key === (index + 1).toString();
-  })?.value || "selection";
+export const findShapeByKey = (key: string) => {
+  const shape = SHAPES.find((shape, index) => {
+    return (
+      key === (index + 1).toString() ||
+      (typeof shape.key === "string"
+        ? shape.key === key
+        : (shape.key as readonly string[]).includes(key))
+    );
+  });
+  return shape?.value || null;
+};

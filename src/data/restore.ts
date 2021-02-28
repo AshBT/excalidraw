@@ -3,13 +3,18 @@ import {
   FontFamily,
   ExcalidrawSelectionElement,
 } from "../element/types";
-import { AppState } from "../types";
-import { DataState } from "./types";
+import { AppState, NormalizedZoomValue } from "../types";
+import { DataState, ImportedDataState } from "./types";
 import { isInvisiblySmallElement, getNormalizedDimensions } from "../element";
-import { calculateScrollCenter } from "../scene";
+import { isLinearElementType } from "../element/typeChecks";
 import { randomId } from "../random";
-import { DEFAULT_TEXT_ALIGN, DEFAULT_FONT_FAMILY } from "../appState";
-import { FONT_FAMILY } from "../constants";
+import {
+  FONT_FAMILY,
+  DEFAULT_FONT_FAMILY,
+  DEFAULT_TEXT_ALIGN,
+  DEFAULT_VERTICAL_ALIGN,
+} from "../constants";
+import { getDefaultAppState } from "../appState";
 
 const getFontFamilyByName = (fontFamilyName: string): FontFamily => {
   for (const [id, fontFamilyString] of Object.entries(FONT_FAMILY)) {
@@ -20,17 +25,17 @@ const getFontFamilyByName = (fontFamilyName: string): FontFamily => {
   return DEFAULT_FONT_FAMILY;
 };
 
-function migrateElementWithProperties<T extends ExcalidrawElement>(
-  element: T,
-  extra: Omit<T, keyof ExcalidrawElement>,
-): T {
+const restoreElementWithProperties = <T extends ExcalidrawElement>(
+  element: Required<T>,
+  extra: Omit<Required<T>, keyof ExcalidrawElement>,
+): T => {
   const base: Pick<T, keyof ExcalidrawElement> = {
     type: element.type,
-    // all elements must have version > 0 so getDrawingVersion() will pick up
-    //  newly added elements
+    // all elements must have version > 0 so getSceneVersion() will pick up
+    // newly added elements
     version: element.version || 1,
     versionNonce: element.versionNonce ?? 0,
-    isDeleted: false,
+    isDeleted: element.isDeleted ?? false,
     id: element.id || randomId(),
     fillStyle: element.fillStyle || "hachure",
     strokeWidth: element.strokeWidth || 1,
@@ -45,17 +50,21 @@ function migrateElementWithProperties<T extends ExcalidrawElement>(
     width: element.width || 0,
     height: element.height || 0,
     seed: element.seed ?? 1,
-    groupIds: element.groupIds || [],
+    groupIds: element.groupIds ?? [],
+    strokeSharpness:
+      element.strokeSharpness ??
+      (isLinearElementType(element.type) ? "round" : "sharp"),
+    boundElementIds: element.boundElementIds ?? [],
   };
 
-  return {
+  return ({
     ...base,
     ...getNormalizedDimensions(base),
     ...extra,
-  } as T;
-}
+  } as unknown) as T;
+};
 
-const migrateElement = (
+const restoreElement = (
   element: Exclude<ExcalidrawElement, ExcalidrawSelectionElement>,
 ): typeof element => {
   switch (element.type) {
@@ -70,17 +79,25 @@ const migrateElement = (
         fontSize = parseInt(fontPx, 10);
         fontFamily = getFontFamilyByName(_fontFamily);
       }
-      return migrateElementWithProperties(element, {
+      return restoreElementWithProperties(element, {
         fontSize,
         fontFamily,
         text: element.text ?? "",
         baseline: element.baseline,
-        textAlign: element.textAlign ?? DEFAULT_TEXT_ALIGN,
+        textAlign: element.textAlign || DEFAULT_TEXT_ALIGN,
+        verticalAlign: element.verticalAlign || DEFAULT_VERTICAL_ALIGN,
       });
     case "draw":
     case "line":
     case "arrow": {
-      return migrateElementWithProperties(element, {
+      const {
+        startArrowhead = null,
+        endArrowhead = element.type === "arrow" ? "arrow" : null,
+      } = element;
+
+      return restoreElementWithProperties(element, {
+        startBinding: element.startBinding,
+        endBinding: element.endBinding,
         points:
           // migrate old arrow model to new one
           !Array.isArray(element.points) || element.points.length < 2
@@ -89,46 +106,91 @@ const migrateElement = (
                 [element.width, element.height],
               ]
             : element.points,
+        lastCommittedPoint: null,
+        startArrowhead,
+        endArrowhead,
       });
     }
     // generic elements
     case "ellipse":
+      return restoreElementWithProperties(element, {});
     case "rectangle":
+      return restoreElementWithProperties(element, {});
     case "diamond":
-      return migrateElementWithProperties(element, {});
+      return restoreElementWithProperties(element, {});
 
-    // don't use default case so as to catch a missing an element type case
-    //  (we also don't want to throw, but instead return void so we
-    //   filter out these unsupported elements from the restored array)
+    // Don't use default case so as to catch a missing an element type case.
+    // We also don't want to throw, but instead return void so we filter
+    // out these unsupported elements from the restored array.
   }
 };
 
-export const restore = (
-  savedElements: readonly ExcalidrawElement[],
-  savedState: AppState | null,
-  opts?: { scrollToContent: boolean },
-): DataState => {
-  const elements = savedElements.reduce((elements, element) => {
+export const restoreElements = (
+  elements: ImportedDataState["elements"],
+): ExcalidrawElement[] => {
+  return (elements || []).reduce((elements, element) => {
     // filtering out selection, which is legacy, no longer kept in elements,
-    //  and causing issues if retained
+    // and causing issues if retained
     if (element.type !== "selection" && !isInvisiblySmallElement(element)) {
-      const migratedElement = migrateElement(element);
+      const migratedElement = restoreElement(element);
       if (migratedElement) {
         elements.push(migratedElement);
       }
     }
     return elements;
   }, [] as ExcalidrawElement[]);
+};
 
-  if (opts?.scrollToContent && savedState) {
-    savedState = {
-      ...savedState,
-      ...calculateScrollCenter(elements, savedState, null),
-    };
+export const restoreAppState = (
+  appState: ImportedDataState["appState"],
+  localAppState: Partial<AppState> | null,
+): AppState => {
+  appState = appState || {};
+
+  const defaultAppState = getDefaultAppState();
+  const nextAppState = {} as typeof defaultAppState;
+
+  for (const [key, val] of Object.entries(defaultAppState) as [
+    keyof typeof defaultAppState,
+    any,
+  ][]) {
+    const restoredValue = appState[key];
+    const localValue = localAppState ? localAppState[key] : undefined;
+    (nextAppState as any)[key] =
+      restoredValue !== undefined
+        ? restoredValue
+        : localValue !== undefined
+        ? localValue
+        : val;
   }
 
   return {
-    elements: elements,
-    appState: savedState,
+    ...nextAppState,
+    offsetLeft: appState.offsetLeft || 0,
+    offsetTop: appState.offsetTop || 0,
+    // Migrates from previous version where appState.zoom was a number
+    zoom:
+      typeof appState.zoom === "number"
+        ? {
+            value: appState.zoom as NormalizedZoomValue,
+            translation: defaultAppState.zoom.translation,
+          }
+        : appState.zoom || defaultAppState.zoom,
+  };
+};
+
+export const restore = (
+  data: ImportedDataState | null,
+  /**
+   * Local AppState (`this.state` or initial state from localStorage) so that we
+   * don't overwrite local state with default values (when values not
+   * explicitly specified).
+   * Supply `null` if you can't get access to it.
+   */
+  localAppState: Partial<AppState> | null | undefined,
+): DataState => {
+  return {
+    elements: restoreElements(data?.elements),
+    appState: restoreAppState(data?.appState, localAppState || null),
   };
 };

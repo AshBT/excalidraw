@@ -1,7 +1,14 @@
-import { FlooredNumber } from "./types";
-import { getZoomOrigin } from "./scene";
-import { CURSOR_TYPE, FONT_FAMILY } from "./constants";
+import colors from "./colors";
+import {
+  CURSOR_TYPE,
+  DEFAULT_VERSION,
+  FONT_FAMILY,
+  WINDOWS_EMOJI_FALLBACK_FONT,
+} from "./constants";
 import { FontFamily, FontString } from "./element/types";
+import { Zoom } from "./types";
+import { unstable_batchedUpdates } from "react-dom";
+import { isDarwin } from "./keys";
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -66,7 +73,7 @@ export const getFontFamilyString = ({
 }: {
   fontFamily: FontFamily;
 }) => {
-  return FONT_FAMILY[fontFamily];
+  return `${FONT_FAMILY[fontFamily]}, ${WINDOWS_EMOJI_FALLBACK_FONT}`;
 };
 
 /** returns fontSize+fontFamily string for assignment to DOM elements */
@@ -88,8 +95,12 @@ export const measureText = (text: string, font: FontString) => {
   line.style.whiteSpace = "pre";
   line.style.font = font;
   body.appendChild(line);
-  // Now we can measure width and height of the letter
-  line.innerText = text;
+  line.innerText = text
+    .split("\n")
+    // replace empty lines with single space because leading/trailing empty
+    // lines would be stripped from computation
+    .map((x) => x || " ")
+    .join("\n");
   const width = line.offsetWidth;
   const height = line.offsetHeight;
   // Now creating 1px sized item that will be aligned to baseline
@@ -120,7 +131,12 @@ export const debounce = <T extends any[]>(
   };
   ret.flush = () => {
     clearTimeout(handle);
-    fn(...lastArgs);
+    if (lastArgs) {
+      fn(...lastArgs);
+    }
+  };
+  ret.cancel = () => {
+    clearTimeout(handle);
   };
   return ret;
 };
@@ -165,65 +181,208 @@ export const allowFullScreen = () =>
 export const exitFullScreen = () => document.exitFullscreen();
 
 export const getShortcutKey = (shortcut: string): string => {
-  const isMac = /Mac|iPod|iPhone|iPad/.test(window.navigator.platform);
-  if (isMac) {
-    return `${shortcut
+  shortcut = shortcut
+    .replace(/\bAlt\b/i, "Alt")
+    .replace(/\bShift\b/i, "Shift")
+    .replace(/\b(Enter|Return)\b/i, "Enter")
+    .replace(/\bDel\b/i, "Delete");
+
+  if (isDarwin) {
+    return shortcut
       .replace(/\bCtrlOrCmd\b/i, "Cmd")
-      .replace(/\bAlt\b/i, "Option")
-      .replace(/\bDel\b/i, "Delete")
-      .replace(/\b(Enter|Return)\b/i, "Enter")}`;
+      .replace(/\bAlt\b/i, "Option");
   }
-  return `${shortcut.replace(/\bCtrlOrCmd\b/i, "Ctrl")}`;
+  return shortcut.replace(/\bCtrlOrCmd\b/i, "Ctrl");
 };
+
 export const viewportCoordsToSceneCoords = (
   { clientX, clientY }: { clientX: number; clientY: number },
   {
+    zoom,
+    offsetLeft,
+    offsetTop,
     scrollX,
     scrollY,
-    zoom,
   }: {
-    scrollX: FlooredNumber;
-    scrollY: FlooredNumber;
-    zoom: number;
+    zoom: Zoom;
+    offsetLeft: number;
+    offsetTop: number;
+    scrollX: number;
+    scrollY: number;
   },
-  canvas: HTMLCanvasElement | null,
-  scale: number,
 ) => {
-  const zoomOrigin = getZoomOrigin(canvas, scale);
-  const clientXWithZoom = zoomOrigin.x + (clientX - zoomOrigin.x) / zoom;
-  const clientYWithZoom = zoomOrigin.y + (clientY - zoomOrigin.y) / zoom;
-
-  const x = clientXWithZoom - scrollX;
-  const y = clientYWithZoom - scrollY;
-
+  const invScale = 1 / zoom.value;
+  const x = (clientX - zoom.translation.x - offsetLeft) * invScale - scrollX;
+  const y = (clientY - zoom.translation.y - offsetTop) * invScale - scrollY;
   return { x, y };
 };
 
 export const sceneCoordsToViewportCoords = (
   { sceneX, sceneY }: { sceneX: number; sceneY: number },
   {
+    zoom,
+    offsetLeft,
+    offsetTop,
     scrollX,
     scrollY,
-    zoom,
   }: {
-    scrollX: FlooredNumber;
-    scrollY: FlooredNumber;
-    zoom: number;
+    zoom: Zoom;
+    offsetLeft: number;
+    offsetTop: number;
+    scrollX: number;
+    scrollY: number;
   },
-  canvas: HTMLCanvasElement | null,
-  scale: number,
 ) => {
-  const zoomOrigin = getZoomOrigin(canvas, scale);
-  const sceneXWithZoomAndScroll =
-    zoomOrigin.x - (zoomOrigin.x - sceneX - scrollX) * zoom;
-  const sceneYWithZoomAndScroll =
-    zoomOrigin.y - (zoomOrigin.y - sceneY - scrollY) * zoom;
-
-  const x = sceneXWithZoomAndScroll;
-  const y = sceneYWithZoomAndScroll;
-
+  const x = (sceneX + scrollX + offsetLeft) * zoom.value + zoom.translation.x;
+  const y = (sceneY + scrollY + offsetTop) * zoom.value + zoom.translation.y;
   return { x, y };
 };
 
 export const getGlobalCSSVariable = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(`--${name}`);
+
+const RS_LTR_CHARS =
+  "A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u02B8\u0300-\u0590\u0800-\u1FFF" +
+  "\u2C00-\uFB1C\uFDFE-\uFE6F\uFEFD-\uFFFF";
+const RS_RTL_CHARS = "\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC";
+const RE_RTL_CHECK = new RegExp(`^[^${RS_LTR_CHARS}]*[${RS_RTL_CHARS}]`);
+/**
+ * Checks whether first directional character is RTL. Meaning whether it starts
+ *  with RTL characters, or indeterminate (numbers etc.) characters followed by
+ *  RTL.
+ * See https://github.com/excalidraw/excalidraw/pull/1722#discussion_r436340171
+ */
+export const isRTL = (text: string) => RE_RTL_CHECK.test(text);
+
+export const tupleToCoors = (
+  xyTuple: readonly [number, number],
+): { x: number; y: number } => {
+  const [x, y] = xyTuple;
+  return { x, y };
+};
+
+/** use as a rejectionHandler to mute filesystem Abort errors */
+export const muteFSAbortError = (error?: Error) => {
+  if (error?.name === "AbortError") {
+    return;
+  }
+  throw error;
+};
+
+export const findIndex = <T>(
+  array: readonly T[],
+  cb: (element: T, index: number, array: readonly T[]) => boolean,
+  fromIndex: number = 0,
+) => {
+  if (fromIndex < 0) {
+    fromIndex = array.length + fromIndex;
+  }
+  fromIndex = Math.min(array.length, Math.max(fromIndex, 0));
+  let index = fromIndex - 1;
+  while (++index < array.length) {
+    if (cb(array[index], index, array)) {
+      return index;
+    }
+  }
+  return -1;
+};
+
+export const findLastIndex = <T>(
+  array: readonly T[],
+  cb: (element: T, index: number, array: readonly T[]) => boolean,
+  fromIndex: number = array.length - 1,
+) => {
+  if (fromIndex < 0) {
+    fromIndex = array.length + fromIndex;
+  }
+  fromIndex = Math.min(array.length - 1, Math.max(fromIndex, 0));
+  let index = fromIndex + 1;
+  while (--index > -1) {
+    if (cb(array[index], index, array)) {
+      return index;
+    }
+  }
+  return -1;
+};
+
+export const isTransparent = (color: string) => {
+  const isRGBTransparent = color.length === 5 && color.substr(4, 1) === "0";
+  const isRRGGBBTransparent = color.length === 9 && color.substr(7, 2) === "00";
+  return (
+    isRGBTransparent ||
+    isRRGGBBTransparent ||
+    color === colors.elementBackground[0]
+  );
+};
+
+export type ResolvablePromise<T> = Promise<T> & {
+  resolve: [T] extends [undefined] ? (value?: T) => void : (value: T) => void;
+  reject: (error: Error) => void;
+};
+export const resolvablePromise = <T>() => {
+  let resolve!: any;
+  let reject!: any;
+  const promise = new Promise((_resolve, _reject) => {
+    resolve = _resolve;
+    reject = _reject;
+  });
+  (promise as any).resolve = resolve;
+  (promise as any).reject = reject;
+  return promise as ResolvablePromise<T>;
+};
+
+/**
+ * @param func handler taking at most single parameter (event).
+ */
+export const withBatchedUpdates = <
+  TFunction extends ((event: any) => void) | (() => void)
+>(
+  func: Parameters<TFunction>["length"] extends 0 | 1 ? TFunction : never,
+) =>
+  ((event) => {
+    unstable_batchedUpdates(func as TFunction, event);
+  }) as TFunction;
+
+//https://stackoverflow.com/a/9462382/8418
+export const nFormatter = (num: number, digits: number): string => {
+  const si = [
+    { value: 1, symbol: "b" },
+    { value: 1e3, symbol: "k" },
+    { value: 1e6, symbol: "M" },
+    { value: 1e9, symbol: "G" },
+  ];
+  const rx = /\.0+$|(\.[0-9]*[1-9])0+$/;
+  let index;
+  for (index = si.length - 1; index > 0; index--) {
+    if (num >= si[index].value) {
+      break;
+    }
+  }
+  return (
+    (num / si[index].value).toFixed(digits).replace(rx, "$1") + si[index].symbol
+  );
+};
+
+export const getVersion = () => {
+  return (
+    document.querySelector<HTMLMetaElement>('meta[name="version"]')?.content ||
+    DEFAULT_VERSION
+  );
+};
+
+// Adapted from https://github.com/Modernizr/Modernizr/blob/master/feature-detects/emoji.js
+export const supportsEmoji = () => {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return false;
+  }
+  const offset = 12;
+  ctx.fillStyle = "#f00";
+  ctx.textBaseline = "top";
+  ctx.font = "32px Arial";
+  // Modernizr used 🐨, but it is sort of supported on Windows 7.
+  // Luckily 😀 isn't supported.
+  ctx.fillText("😀", 0, 0);
+  return ctx.getImageData(offset, offset, 1, 1).data[0] !== 0;
+};

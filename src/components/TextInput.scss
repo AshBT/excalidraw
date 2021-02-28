@@ -1,20 +1,25 @@
-@import "../css/_variables.scss";
+@import "../css/variables.module";
 
-.TextInput {
-  display: inline-block;
-  border: 1.5px solid $oc-gray-2;
-  line-height: 1;
-  padding: 0.75rem;
-  white-space: nowrap;
-  border-radius: var(--space-factor);
-  background-color: $oc-white;
-  &:not(:focus) {
-    &:hover {
-      background-color: $oc-gray-1;
+.excalidraw {
+  .TextInput {
+    color: var(--text-primary-color);
+    display: inline-block;
+    border: 1.5px solid var(--button-gray-1);
+    line-height: 1;
+    padding: 0.75rem;
+    white-space: nowrap;
+    border-radius: var(--space-factor);
+    background-color: var(--input-bg-color);
+
+    &:not(:focus) {
+      &:hover {
+        background-color: var(--input-hover-bg-color);
+      }
     }
-  }
-  &:focus {
-    outline: none;
-    box-shadow: 0 0 0 2px $oc-blue-5;
+
+    &:focus {
+      outline: none;
+      box-shadow: 0 0 0 2px var(--focus-highlight-color);
+    }
   }
 }

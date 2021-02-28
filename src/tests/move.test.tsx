@@ -1,9 +1,17 @@
 import React from "react";
 import ReactDOM from "react-dom";
 import { render, fireEvent } from "./test-utils";
-import App from "../components/App";
+import ExcalidrawApp from "../excalidraw-app";
 import * as Renderer from "../renderer/renderScene";
 import { reseed } from "../random";
+import { bindOrUnbindLinearElement } from "../element/binding";
+import {
+  ExcalidrawLinearElement,
+  NonDeleted,
+  ExcalidrawRectangleElement,
+} from "../element/types";
+import { UI, Pointer, Keyboard } from "./helpers/ui";
+import { KEYS } from "../keys";
 
 // Unmount ReactDOM from root
 ReactDOM.unmountComponentAtNode(document.getElementById("root")!);
@@ -18,8 +26,8 @@ beforeEach(() => {
 const { h } = window;
 
 describe("move element", () => {
-  it("rectangle", () => {
-    const { getByToolName, container } = render(<App />);
+  it("rectangle", async () => {
+    const { getByToolName, container } = await render(<ExcalidrawApp />);
     const canvas = container.querySelector("canvas")!;
 
     {
@@ -30,7 +38,7 @@ describe("move element", () => {
       fireEvent.pointerMove(canvas, { clientX: 60, clientY: 70 });
       fireEvent.pointerUp(canvas);
 
-      expect(renderScene).toHaveBeenCalledTimes(4);
+      expect(renderScene).toHaveBeenCalledTimes(7);
       expect(h.state.selectionElement).toBeNull();
       expect(h.elements.length).toEqual(1);
       expect(h.state.selectedElementIds[h.elements[0].id]).toBeTruthy();
@@ -50,11 +58,58 @@ describe("move element", () => {
 
     h.elements.forEach((element) => expect(element).toMatchSnapshot());
   });
+
+  it("rectangles with binding arrow", async () => {
+    await render(<ExcalidrawApp />);
+
+    // create elements
+    const rectA = UI.createElement("rectangle", { size: 100 });
+    const rectB = UI.createElement("rectangle", { x: 200, y: 0, size: 300 });
+    const line = UI.createElement("line", { x: 110, y: 50, size: 80 });
+
+    // bind line to two rectangles
+    bindOrUnbindLinearElement(
+      line.get() as NonDeleted<ExcalidrawLinearElement>,
+      rectA.get() as ExcalidrawRectangleElement,
+      rectB.get() as ExcalidrawRectangleElement,
+    );
+
+    // select the second rectangles
+    new Pointer("mouse").clickOn(rectB);
+
+    expect(renderScene).toHaveBeenCalledTimes(21);
+    expect(h.state.selectionElement).toBeNull();
+    expect(h.elements.length).toEqual(3);
+    expect(h.state.selectedElementIds[rectB.id]).toBeTruthy();
+    expect([rectA.x, rectA.y]).toEqual([0, 0]);
+    expect([rectB.x, rectB.y]).toEqual([200, 0]);
+    expect([line.x, line.y]).toEqual([110, 50]);
+    expect([line.width, line.height]).toEqual([80, 80]);
+
+    renderScene.mockClear();
+
+    // Move selected rectangle
+    Keyboard.keyDown(KEYS.ARROW_RIGHT);
+    Keyboard.keyDown(KEYS.ARROW_DOWN);
+    Keyboard.keyDown(KEYS.ARROW_DOWN);
+
+    // Check that the arrow size has been changed according to moving the rectangle
+    expect(renderScene).toHaveBeenCalledTimes(3);
+    expect(h.state.selectionElement).toBeNull();
+    expect(h.elements.length).toEqual(3);
+    expect(h.state.selectedElementIds[rectB.id]).toBeTruthy();
+    expect([rectA.x, rectA.y]).toEqual([0, 0]);
+    expect([rectB.x, rectB.y]).toEqual([201, 2]);
+    expect([Math.round(line.x), Math.round(line.y)]).toEqual([110, 50]);
+    expect([Math.round(line.width), Math.round(line.height)]).toEqual([81, 81]);
+
+    h.elements.forEach((element) => expect(element).toMatchSnapshot());
+  });
 });
 
 describe("duplicate element on move when ALT is clicked", () => {
-  it("rectangle", () => {
-    const { getByToolName, container } = render(<App />);
+  it("rectangle", async () => {
+    const { getByToolName, container } = await render(<ExcalidrawApp />);
     const canvas = container.querySelector("canvas")!;
 
     {
@@ -65,7 +120,7 @@ describe("duplicate element on move when ALT is clicked", () => {
       fireEvent.pointerMove(canvas, { clientX: 60, clientY: 70 });
       fireEvent.pointerUp(canvas);
 
-      expect(renderScene).toHaveBeenCalledTimes(4);
+      expect(renderScene).toHaveBeenCalledTimes(7);
       expect(h.state.selectionElement).toBeNull();
       expect(h.elements.length).toEqual(1);
       expect(h.state.selectedElementIds[h.elements[0].id]).toBeTruthy();
@@ -83,7 +138,9 @@ describe("duplicate element on move when ALT is clicked", () => {
     fireEvent.pointerMove(canvas, { clientX: 10, clientY: 60 });
     fireEvent.pointerUp(canvas);
 
-    expect(renderScene).toHaveBeenCalledTimes(4);
+    // TODO: This used to be 4, but binding made it go up to 5. Do we need
+    // that additional render?
+    expect(renderScene).toHaveBeenCalledTimes(5);
     expect(h.state.selectionElement).toBeNull();
     expect(h.elements.length).toEqual(2);
 

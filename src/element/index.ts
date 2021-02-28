@@ -4,10 +4,12 @@ import {
   NonDeleted,
 } from "./types";
 import { isInvisiblySmallElement } from "./sizeHelpers";
+import { isLinearElementType } from "./typeChecks";
 
 export {
   newElement,
   newTextElement,
+  updateTextElement,
   newLinearElement,
   duplicateElement,
 } from "./newElement";
@@ -16,29 +18,35 @@ export {
   getElementBounds,
   getCommonBounds,
   getDiamondPoints,
-  getArrowPoints,
+  getArrowheadPoints,
   getClosestElementBounds,
 } from "./bounds";
 
 export {
   OMIT_SIDES_FOR_MULTIPLE_ELEMENTS,
-  handlerRectanglesFromCoords,
-  handlerRectangles,
-} from "./handlerRectangles";
-export { hitTest } from "./collision";
+  getTransformHandlesFromCoords,
+  getTransformHandles,
+} from "./transformHandles";
+export {
+  hitTest,
+  isHittingElementBoundingBoxWithoutHittingElement,
+} from "./collision";
 export {
   resizeTest,
   getCursorForResizingElement,
-  normalizeResizeHandle,
-  getElementWithResizeHandler,
-  getResizeHandlerFromCoords,
+  getElementWithTransformHandleType,
+  getTransformHandleTypeFromCoords,
 } from "./resizeTest";
 export {
-  resizeElements,
-  canResizeMutlipleElements,
+  transformElements,
   getResizeOffsetXY,
   getResizeArrowDirection,
 } from "./resizeElements";
+export {
+  dragSelectedElements,
+  getDragOffsetXY,
+  dragNewElement,
+} from "./dragElements";
 export { isTextElement, isExcalidrawElement } from "./typeChecks";
 export { textWysiwyg } from "./textWysiwyg";
 export { redrawTextBoundingBox } from "./textElement";
@@ -66,7 +74,7 @@ export const getElementMap = (elements: readonly ExcalidrawElement[]) =>
     {},
   );
 
-export const getDrawingVersion = (elements: readonly ExcalidrawElement[]) =>
+export const getSceneVersion = (elements: readonly ExcalidrawElement[]) =>
   elements.reduce((acc, el) => acc + el.version, 0);
 
 export const getNonDeletedElements = (elements: readonly ExcalidrawElement[]) =>
@@ -77,3 +85,20 @@ export const getNonDeletedElements = (elements: readonly ExcalidrawElement[]) =>
 export const isNonDeletedElement = <T extends ExcalidrawElement>(
   element: T,
 ): element is NonDeleted<T> => !element.isDeleted;
+
+const _clearElements = (
+  elements: readonly ExcalidrawElement[],
+): ExcalidrawElement[] =>
+  getNonDeletedElements(elements).map((element) =>
+    isLinearElementType(element.type)
+      ? { ...element, lastCommittedPoint: null }
+      : element,
+  );
+
+export const clearElementsForExport = (
+  elements: readonly ExcalidrawElement[],
+) => _clearElements(elements);
+
+export const clearElementsForLocalStorage = (
+  elements: readonly ExcalidrawElement[],
+) => _clearElements(elements);

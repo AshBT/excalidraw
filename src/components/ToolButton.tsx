@@ -1,6 +1,7 @@
 import "./ToolIcon.scss";
 
 import React from "react";
+import clsx from "clsx";
 
 type ToolIconSize = "s" | "m";
 
@@ -16,6 +17,7 @@ type ToolButtonBaseProps = {
   size?: ToolIconSize;
   keyBindingLabel?: string;
   showAriaLabel?: boolean;
+  hidden?: boolean;
   visible?: boolean;
   selected?: boolean;
   className?: string;
@@ -44,13 +46,19 @@ export const ToolButton = React.forwardRef((props: ToolButtonProps, ref) => {
   if (props.type === "button") {
     return (
       <button
-        className={`ToolIcon_type_button ToolIcon ${sizeCn}${
-          props.selected ? " ToolIcon--selected" : ""
-        } ${props.className} ${
-          props.visible
+        className={clsx(
+          "ToolIcon_type_button",
+          sizeCn,
+          props.className,
+          props.visible && !props.hidden
             ? "ToolIcon_type_button--show"
-            : "ToolIcon_type_button--hide"
-        }`}
+            : "ToolIcon_type_button--hide",
+          {
+            ToolIcon: !props.hidden,
+            "ToolIcon--selected": props.selected,
+          },
+        )}
+        hidden={props.hidden}
         title={props.title}
         aria-label={props["aria-label"]}
         type="button"
@@ -59,6 +67,11 @@ export const ToolButton = React.forwardRef((props: ToolButtonProps, ref) => {
       >
         <div className="ToolIcon__icon" aria-hidden="true">
           {props.icon || props.label}
+          {props.keyBindingLabel && (
+            <span className="ToolIcon__keybinding">
+              {props.keyBindingLabel}
+            </span>
+          )}
         </div>
         {props.showAriaLabel && (
           <div className="ToolIcon__label">{props["aria-label"]}</div>
@@ -69,7 +82,7 @@ export const ToolButton = React.forwardRef((props: ToolButtonProps, ref) => {
   }
 
   return (
-    <label className="ToolIcon" title={props.title}>
+    <label className={clsx("ToolIcon", props.className)} title={props.title}>
       <input
         className={`ToolIcon_type_radio ${sizeCn}`}
         type="radio"

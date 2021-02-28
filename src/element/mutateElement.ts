@@ -1,13 +1,13 @@
 import { ExcalidrawElement } from "./types";
 import { invalidateShapeForElement } from "../renderer/renderElement";
-import { globalSceneState } from "../scene";
+import Scene from "../scene/Scene";
 import { getSizeFromPoints } from "../points";
 import { randomInteger } from "../random";
 import { Point } from "../types";
 
 type ElementUpdate<TElement extends ExcalidrawElement> = Omit<
   Partial<TElement>,
-  "id" | "seed" | "version" | "versionNonce"
+  "id" | "version" | "versionNonce"
 >;
 
 // This function tracks updates of text elements for the purposes for collaboration.
@@ -44,10 +44,10 @@ export const mutateElement = <TElement extends Mutable<ExcalidrawElement>>(
         const nextPoints = value;
         if (prevPoints.length === nextPoints.length) {
           let didChangePoints = false;
-          let i = prevPoints.length;
-          while (--i) {
-            const prevPoint: Point = prevPoints[i];
-            const nextPoint: Point = nextPoints[i];
+          let index = prevPoints.length;
+          while (--index) {
+            const prevPoint: Point = prevPoints[index];
+            const nextPoint: Point = nextPoints[index];
             if (
               prevPoint[0] !== nextPoint[0] ||
               prevPoint[1] !== nextPoint[1]
@@ -81,8 +81,7 @@ export const mutateElement = <TElement extends Mutable<ExcalidrawElement>>(
 
   element.version++;
   element.versionNonce = randomInteger();
-
-  globalSceneState.informMutation();
+  Scene.getScene(element)?.informMutation();
 };
 
 export const newElementWith = <TElement extends ExcalidrawElement>(

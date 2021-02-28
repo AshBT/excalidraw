@@ -54,12 +54,16 @@ const elements = [
   },
 ];
 
-registerFont("./public/FG_Virgil.ttf", { family: "Virgil" });
-registerFont("./public/Cascadia.ttf", { family: "Cascadia" });
+registerFont("./public/Virgil.woff2", { family: "Virgil" });
+registerFont("./public/Cascadia.woff2", { family: "Cascadia" });
 
 const canvas = exportToCanvas(
   elements as any,
-  getDefaultAppState(),
+  {
+    ...getDefaultAppState(),
+    offsetTop: 0,
+    offsetLeft: 0,
+  },
   {
     exportBackground: true,
     viewBackgroundColor: "#ffffff",
@@ -71,7 +75,7 @@ const canvas = exportToCanvas(
 
 const fs = require("fs");
 const out = fs.createWriteStream("test.png");
-const stream = canvas.createPNGStream();
+const stream = (canvas as any).createPNGStream();
 stream.pipe(out);
 out.on("finish", () => {
   console.info("test.png was created.");
